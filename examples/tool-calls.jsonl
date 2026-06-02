@@ -1,0 +1,6 @@
+{"tool":"functions.exec_command","args":{"cmd":"make test","workdir":"/workspace/app"},"exit_code":0,"stdout":"OK"}
+{"tool":"functions.exec_command","args":{"cmd":"rm -rf build/*","workdir":"/workspace/app"},"exit_code":0,"stdout":""}
+{"tool":"functions.exec_command","args":{"cmd":"npm test","workdir":"/workspace/app"},"exit_code":1,"stderr":"failed once"}
+{"tool":"functions.exec_command","args":{"cmd":"npm test","workdir":"/workspace/app"},"exit_code":1,"stderr":"failed twice"}
+{"tool":"gmail._send_email","args":{"to":"reviewer@example.com","subject":"Review","body":"Sending draft"},"status":"success"}
+{"tool":"functions.exec_command","args":{"cmd":"git commit --no-verify -m proof","workdir":"/workspace/app"},"exit_code":0}

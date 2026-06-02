@@ -1,0 +1,4 @@
+TOOL functions.exec_command cmd="make test" exit_code=0
+TOOL functions.exec_command cmd="git reset --hard HEAD~1" exit_code=0
+TOOL functions.exec_command cmd="npm test" exit_code=1
+TOOL functions.exec_command cmd="npm test" exit_code=1

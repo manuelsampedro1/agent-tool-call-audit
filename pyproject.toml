@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-tool-call-audit"
+version = "0.1.0"
+description = "Audit coding-agent tool-call logs for risky actions and repeated failures."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Manuel Sampedro"}]
+keywords = ["ai-agents", "tool-calls", "audit", "safety", "cli"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: MIT License",
+  "Environment :: Console",
+]
+
+[project.scripts]
+agent-tool-call-audit = "agent_tool_call_audit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

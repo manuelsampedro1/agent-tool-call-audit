@@ -47,6 +47,12 @@ Plain-text logs are supported as a fallback:
 agent-tool-call-audit examples/tool-calls.txt --fail-on medium
 ```
 
+Require approval evidence for sensitive external actions:
+
+```sh
+agent-tool-call-audit examples/tool-calls.jsonl --require-approval --fail-on high
+```
+
 ## Input Shape
 
 JSONL records can use any of these common field names:
@@ -59,6 +65,12 @@ JSONL records can use any of these common field names:
 The parser is permissive so it can handle Codex-style, MCP-style, and
 homegrown run logs.
 
+When `--require-approval` is enabled, sensitive tool calls and external action
+commands need explicit approval evidence in the log. The audit recognizes
+fields or text such as `approval_receipt`, `permission_receipt`,
+`authorization_receipt`, `approved_by`, `authorized_by`, `human_approved: true`,
+or `approved: true`.
+
 ## What It Detects
 
 - Destructive shell commands such as force pushes, hard resets, broad deletes,
@@ -69,12 +81,15 @@ homegrown run logs.
 - Tool input or output that appears to contain secret material markers.
 - Shell commands without a working directory in structured logs.
 - Bypass language such as skipping hooks or ignoring safety checks.
+- Missing approval or receipt evidence for sensitive external actions when
+  `--require-approval` is enabled.
 
 ## Output
 
 Markdown output includes:
 
 - overall status and score,
+- approval-required and approval-evidence call counts,
 - finding severity, rule, tool name, and reason,
 - redacted evidence snippets,
 - repeated-failure counts,

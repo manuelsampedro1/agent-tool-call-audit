@@ -21,6 +21,12 @@ RISKY_LOG = """{"tool":"functions.exec_command","args":{"cmd":"git reset --hard 
 SECRET_LOG = """{"tool":"functions.exec_command","args":{"cmd":"printenv","workdir":"/repo"},"stdout":"OPENAI_API_KEY=[redacted-value]"}
 """
 
+APPROVED_LOG = """{"tool":"gmail._send_email","args":{"to":"reviewer@example.com","body":"hello","approval_receipt":"receipt-123"},"status":"success"}
+"""
+
+PUSH_LOG = """{"tool":"functions.exec_command","args":{"cmd":"git push origin main","workdir":"/repo"},"exit_code":0}
+"""
+
 
 class TestAgentToolCallAudit(unittest.TestCase):
     def test_safe_log_passes(self):
@@ -65,6 +71,43 @@ class TestAgentToolCallAudit(unittest.TestCase):
         report = cli.audit_calls(cli.parse_log(log))
         self.assertEqual(report.findings[0].rule, "missing-workdir")
         self.assertEqual(report.findings[0].severity, "low")
+
+    def test_require_approval_blocks_sensitive_tool_without_receipt(self):
+        report = cli.audit_calls(cli.parse_log(RISKY_LOG), require_approval=True)
+        rules = {finding.rule for finding in report.findings}
+        self.assertIn("missing-approval-evidence", rules)
+        self.assertEqual(report.approval_required_calls, 1)
+        self.assertEqual(report.approval_evidence_calls, 0)
+        self.assertEqual(report.status, "block")
+
+    def test_require_approval_accepts_sensitive_tool_with_receipt(self):
+        report = cli.audit_calls(cli.parse_log(APPROVED_LOG), require_approval=True)
+        rules = {finding.rule for finding in report.findings}
+        self.assertIn("sensitive-tool", rules)
+        self.assertNotIn("missing-approval-evidence", rules)
+        self.assertEqual(report.approval_required_calls, 1)
+        self.assertEqual(report.approval_evidence_calls, 1)
+        self.assertEqual(report.status, "warn")
+
+    def test_require_approval_blocks_external_action_command(self):
+        report = cli.audit_calls(cli.parse_log(PUSH_LOG), require_approval=True)
+        self.assertEqual(report.findings[0].rule, "missing-approval-evidence")
+        self.assertEqual(report.findings[0].severity, "high")
+        self.assertEqual(report.approval_required_calls, 1)
+
+    def test_cli_require_approval_json_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "calls.jsonl"
+            path.write_text(PUSH_LOG, encoding="utf-8")
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = cli.main(
+                    [str(path), "--format", "json", "--require-approval", "--fail-on", "high"]
+                )
+            self.assertEqual(code, 1)
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(payload["approval_required_calls"], 1)
+            self.assertEqual(payload["findings"][0]["rule"], "missing-approval-evidence")
 
 
 if __name__ == "__main__":

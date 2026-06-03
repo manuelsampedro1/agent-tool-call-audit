@@ -12,3 +12,4 @@ build:
 smoke:
 	PYTHONPATH=src python3 -m agent_tool_call_audit examples/tool-calls.jsonl --min-score 0
 	PYTHONPATH=src python3 -m agent_tool_call_audit examples/tool-calls.jsonl --format json --fail-on high >/tmp/agent-tool-call-audit-smoke.json || test $$? -eq 1
+	PYTHONPATH=src python3 -m agent_tool_call_audit examples/tool-calls.jsonl --require-approval --fail-on high >/tmp/agent-tool-call-audit-approval-smoke.txt || test $$? -eq 1

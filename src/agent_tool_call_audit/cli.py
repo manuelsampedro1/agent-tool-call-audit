@@ -34,6 +34,22 @@ SECRET_MARKER_RE = re.compile(
     r"(BEGIN [A-Z ]*PRIVATE KEY|AWS_SECRET_ACCESS_KEY|OPENAI_API_KEY|GITHUB_TOKEN|PASSWORD\s*=|SECRET\s*=)",
     re.IGNORECASE,
 )
+EXTERNAL_ACTION_COMMAND_RE = re.compile(
+    r"\b("
+    r"git\s+push|npm\s+publish|twine\s+upload|gh\s+release\s+create|"
+    r"wrangler\s+deploy|vercel\s+deploy|firebase\s+deploy"
+    r")\b",
+    re.IGNORECASE,
+)
+APPROVAL_EVIDENCE_RE = re.compile(
+    r"("
+    r"approval[_-]?receipt|permission[_-]?receipt|authorization[_-]?receipt|"
+    r"approved[_-]?by|authorized[_-]?by|"
+    r"human[_-]?approved[\"']?\s*[:=]\s*(true|yes|1)|"
+    r"approved[\"']?\s*[:=]\s*(true|yes|1)"
+    r")",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -63,6 +79,8 @@ class AuditReport:
     score: int
     status: str
     total_calls: int
+    approval_required_calls: int
+    approval_evidence_calls: int
     findings: list[Finding]
     repeated_failures: dict[str, int]
     summary: dict[str, int]
@@ -187,11 +205,23 @@ def command_key(call: ToolCall) -> str:
     return call.command.strip() or f"{call.tool}:{call.input_text[:80]}"
 
 
-def audit_calls(calls: Sequence[ToolCall]) -> AuditReport:
+def needs_approval(call: ToolCall) -> bool:
+    return bool(SENSITIVE_TOOL_RE.search(call.tool) or EXTERNAL_ACTION_COMMAND_RE.search(call.command))
+
+
+def has_approval_evidence(call: ToolCall) -> bool:
+    haystack = "\n".join([call.input_text, call.output_text])
+    return bool(APPROVAL_EVIDENCE_RE.search(haystack))
+
+
+def audit_calls(calls: Sequence[ToolCall], require_approval: bool = False) -> AuditReport:
     findings: list[Finding] = []
     failed_counts: dict[str, int] = {}
+    approval_required_calls = 0
+    approval_evidence_calls = 0
     for call in calls:
         haystack = "\n".join([call.command, call.input_text, call.output_text])
+        call_needs_approval = needs_approval(call)
         for severity, rule, pattern in DANGEROUS_COMMAND_RULES:
             if pattern.search(call.command):
                 findings.append(
@@ -215,6 +245,22 @@ def audit_calls(calls: Sequence[ToolCall]) -> AuditReport:
                     evidence=redact(call.tool),
                 )
             )
+        if require_approval and call_needs_approval:
+            approval_required_calls += 1
+            if has_approval_evidence(call):
+                approval_evidence_calls += 1
+            else:
+                evidence = call.command or call.tool
+                findings.append(
+                    Finding(
+                        severity="high",
+                        rule="missing-approval-evidence",
+                        tool=call.tool,
+                        call_index=call.index,
+                        reason="Sensitive external action lacks explicit approval or receipt evidence in the tool log.",
+                        evidence=redact(evidence),
+                    )
+                )
         if SECRET_MARKER_RE.search(haystack):
             findings.append(
                 Finding(
@@ -265,6 +311,7 @@ def audit_calls(calls: Sequence[ToolCall]) -> AuditReport:
 
     follow_up = [
         "Review high and critical tool calls before accepting the run.",
+        "Attach explicit approval or receipt evidence for sensitive external actions.",
         "Explain or remove repeated failed attempts before rerunning automation.",
         "Preserve this audit with the proof packet or run ledger when findings remain.",
     ]
@@ -272,6 +319,8 @@ def audit_calls(calls: Sequence[ToolCall]) -> AuditReport:
         score=score,
         status=status,
         total_calls=len(calls),
+        approval_required_calls=approval_required_calls,
+        approval_evidence_calls=approval_evidence_calls,
         findings=findings,
         repeated_failures=repeated,
         summary=summary,
@@ -286,6 +335,8 @@ def render_markdown(report: AuditReport) -> str:
         f"Status: {report.status}",
         f"Score: {report.score}/100",
         f"Tool calls: {report.total_calls}",
+        f"Approval-required calls: {report.approval_required_calls}",
+        f"Approval evidence calls: {report.approval_evidence_calls}",
         "",
         "## Summary",
         "",
@@ -323,6 +374,11 @@ def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Audit coding-agent tool-call logs.")
     parser.add_argument("log", help="Path to a JSONL or plain-text tool-call log.")
     parser.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    parser.add_argument(
+        "--require-approval",
+        action="store_true",
+        help="Block sensitive external actions that lack approval or receipt evidence in the log.",
+    )
     parser.add_argument("--min-score", type=int, default=0, help="Fail when score is below this value.")
     parser.add_argument(
         "--fail-on",
@@ -339,7 +395,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error(f"log file not found: {args.log}")
     with open(args.log, "r", encoding="utf-8") as handle:
         calls = parse_log(handle.read())
-    report = audit_calls(calls)
+    report = audit_calls(calls, require_approval=args.require_approval)
     if args.format == "json":
         print(json.dumps(asdict(report), indent=2, sort_keys=True))
     else:
